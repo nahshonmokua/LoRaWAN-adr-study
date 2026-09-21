@@ -1,0 +1,7 @@
+claim,paper,ours,verdict,basis
+"RMSE up to 1.566 dB, R2 up to 0.94",1.566 / 0.94,1.525 / 0.9441,REPRODUCED,reconstructed data (calibrated to the paper's MLR RMSE)
+Model ranking by test RMSE,RF < ANN < SVR < MLR,RF < ANN < SVR < MLR,REPRODUCED,independent
+Best ML model: PDR > 99 % at LM = 4 dB,4 dB,3.85 dB,REPRODUCED,"independent (residual rule, oracle SNR)"
+Conventional ADR needs LM = 11 dB for 99 %,11 dB,10.85 dB,REPRODUCED,"reconstructed data (the coupled fraction is calibrated to this margin), shuffled window"
+"Energy saving up to 43 % vs conventional ADR (43.5 % for ANN, its best model)",43.5 % (ANN); max 43.5 %,45.5 % (ANN); max 49.2 % (SVR),REPRODUCED,independent under the paper's SF 7-12; ordering not reproduced
+"Shadow fading is Student-t, nu = 11.43",11.43,11.09,CALIBRATED,calibration target of D1

@@ -1,0 +1,11 @@
+test,statistic,pvalue,paper
+KS vs fitted normal,0.013784282064620346,8.803727626819526e-123,p = 2.2e-16
+Durbin-Watson (split order),1.9976173895917237,,1.67
+Durbin-Watson (device+time order),1.1532108149004279,,not run
+Breusch-Pagan,3600.284875210669,0.0,p = 1e-16
+excess kurtosis,3.7178737392379526,,fat tails
+Student-t nu (MLE),11.087079512214792,,11.43
+"Student-t scale at nu = 11.43 (Appendix psi, dB)",1.7404269282048983,,not reported
+QQ R2 vs t,0.9869050426575299,,0.996
+QQ R2 vs normal,0.9779099166975755,,not reported
+residual range dB,-17.98..18.95,,~ -13..+10 (Fig.14)

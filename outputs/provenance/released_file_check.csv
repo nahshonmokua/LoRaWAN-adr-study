@@ -1,0 +1,2 @@
+released_rows,iotj_rows_after_outlier_step,mahalanobis_removed,mahalanobis_removed_pct,mlr_rmse_released,mlr_rmse_after_mahalanobis,mlr_rmse_after_dht22_drop,descriptor_mlr_rmse,iotj_mlr_rmse,sf_11_12_rows
+930753,990750,16455,1.7679233910607863,1.8437749898400697,1.8476620828700425,1.8462064864795595,1.8401,1.951,0
