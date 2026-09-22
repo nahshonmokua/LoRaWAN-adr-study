@@ -75,8 +75,10 @@ def log(msg):
 def prepare_data():
     raw = load_cached()
     clean = raw[~(raw["rh"] <= 2.0)].reset_index(drop=True)          # DHT22 stuck-low fault
+    clean["pos"] = np.arange(len(clean))
     df = restore_outliers(clean, frac_rssi_only=CONFIG["restore_frac_rssi_only"], frac_coupled=CONFIG["restore_frac_coupled"],
                           outlier_db=tuple(CONFIG["outlier_db"]), seed=SEED)
+    df.attrs["perturbed"] = (df["rssi"].to_numpy() != clean["rssi"].to_numpy())      # by position in the cleaned frame
     tr, te = split(df)
     pd.DataFrame([dict(released_rows=len(raw), dht22_fault_rows=int((raw["rh"] <= 2.0).sum()),
                        restored_outlier_rows=df.attrs["n_restored"], train_rows=len(tr), test_rows=len(te),
@@ -166,9 +168,10 @@ def cpls(tr, te):
 
 
 # ------------------------------------------------------------ 4. residuals
-def residuals(tr, te, mlr):
+def residuals(tr, te, mlr, pert_tr=None):
     Xtr, ytr = make_X(tr), make_y(tr)
     r = ytr - mlr.predict(Xtr)
+    pert_tr = np.zeros(len(tr), bool) if pert_tr is None else pert_tr
     rng = np.random.default_rng(SEED)
     sub = r[rng.choice(len(r), 200_000, replace=False)]
     mu, sd = r.mean(), r.std(ddof=1)
@@ -176,8 +179,13 @@ def residuals(tr, te, mlr):
     nu, loc, sc = stats.t.fit(sub)
     nu_a = spec.APPENDIX["t_dof_nu"]
     loc_a, sc_a = stats.t.fit(r, f0=nu_a)[1:]      # the Appendix's psi: nu fixed at 11.43, loc/scale by ML on all training residuals
-    chrono = tr.sort_values(["device_id", "timestamp"], kind="mergesort")
-    dw_c = float(durbin_watson(make_y(chrono) - mlr.predict(make_X(chrono))))
+    # Durbin-Watson depends on the ROW ORDER of the residuals.  The shuffled split gives 2.0 by construction;
+    # the released file is device-blocked (every consecutive pair is the same node); timestamp order interleaves
+    # the four nodes.  The paper's 1.67 (R's caTools keeps the database's own order) matches neither - it implies
+    # ~40 % same-node adjacency, an ordering the released file does not have.
+    o_native = np.argsort(tr["index"].values, kind="stable")
+    o_time = np.lexsort((tr["device_id"].astype(str).values, tr["timestamp"].values))
+    dw_native, dw_time = float(durbin_watson(r[o_native])), float(durbin_watson(r[o_time]))
     idx = rng.choice(len(r), 200_000, replace=False)
     bp = het_breuschpagan(r[idx], np.column_stack([np.ones(len(idx)), Xtr[idx]]))
     def qq_r2(dist, par):
@@ -186,15 +194,16 @@ def residuals(tr, te, mlr):
     r2t, tht, emt = qq_r2(stats.t, (nu, loc, sc)); r2n, thn, emn = qq_r2(stats.norm, (mu, sd))
     pd.DataFrame([
         dict(test="KS vs fitted normal", statistic=float(ks.statistic), pvalue=float(ks.pvalue), paper="p = 2.2e-16"),
-        dict(test="Durbin-Watson (split order)", statistic=float(durbin_watson(r)), pvalue=np.nan, paper=1.67),
-        dict(test="Durbin-Watson (device+time order)", statistic=dw_c, pvalue=np.nan, paper="not run"),
+        dict(test="Durbin-Watson (file order: device-blocked)", statistic=dw_native, pvalue=np.nan, paper="1.67 (database order, not recoverable)"),
+        dict(test="Durbin-Watson (timestamp order: nodes interleaved)", statistic=dw_time, pvalue=np.nan, paper="1.67 (database order, not recoverable)"),
         dict(test="Breusch-Pagan", statistic=float(bp[0]), pvalue=float(bp[1]), paper="p = 1e-16"),
         dict(test="excess kurtosis", statistic=float(stats.kurtosis(r)), pvalue=np.nan, paper="fat tails"),
         dict(test="Student-t nu (MLE)", statistic=float(nu), pvalue=np.nan, paper=11.43),
         dict(test="Student-t scale at nu = 11.43 (Appendix psi, dB)", statistic=float(sc_a), pvalue=np.nan, paper="not reported"),
         dict(test="QQ R2 vs t", statistic=r2t, pvalue=np.nan, paper=0.996),
         dict(test="QQ R2 vs normal", statistic=r2n, pvalue=np.nan, paper="not reported"),
-        dict(test="residual range dB", statistic=f"{r.min():.2f}..{r.max():.2f}", pvalue=np.nan, paper="~ -13..+10 (Fig.14)"),
+        dict(test="residual range dB", statistic=f"{r.min():.2f}..{r.max():.2f}", pvalue=np.nan, paper="~ -13..+10 (Fig.14 axis)"),
+        dict(test="residual range dB, unperturbed rows only", statistic=f"{r[~pert_tr].min():.2f}..{r[~pert_tr].max():.2f}", pvalue=np.nan, paper="not reported"),
     ]).to_csv(FINAL / "appendix_residual_tests.csv", index=False)
     step = max(1, len(emn) // 4000)
     ok_ = np.isfinite(tht[::step]) & np.isfinite(thn[::step])
@@ -339,7 +348,7 @@ def main():
     pd.DataFrame([verify_against_csv(df)]).to_csv(FINAL / "toa_formula_check.csv", index=False)
     log("2/6 conventional models"); sp, spt = conventional(df, tr, te)
     log("3/6 CPLS models"); preds, mlr = cpls(tr, te)
-    log("4/6 residuals"); psi = residuals(tr, te, mlr)
+    log("4/6 residuals"); psi = residuals(tr, te, mlr, pert_tr=df.attrs["perturbed"][tr["pos"].to_numpy()])
     log("5/6 ADR / energy"); adr_and_energy(tr, te, preds, sp, spt, psi)
     log("6/6 claims"); claims()
     import plots; plots.save_all(FINAL, FIGS)
