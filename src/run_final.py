@@ -14,7 +14,7 @@ Tables go to tables/, figures to figures/, fitted models to models/ (see data_lo
 """
 from __future__ import annotations
 
-import json
+import json, os
 import sys
 import time
 from pathlib import Path
@@ -23,6 +23,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from scipy import stats
+from joblib import Parallel, delayed
 from sklearn.model_selection import KFold, cross_val_score
 from statsmodels.stats.diagnostic import het_breuschpagan
 from statsmodels.stats.stattools import durbin_watson
@@ -58,7 +59,8 @@ CONFIG = dict(seed=SEED, train_fraction=0.8, sf_min=7, sf_max=12, min_tp_dbm=2.0
               lm_step_db=0.05,             # LM sweep resolution
               payload_bytes=1, bandwidth_hz=125_000,
               coding_rate="4/5", restore_frac_rssi_only=0.0025, restore_frac_coupled=0.0015,
-              outlier_db=[8, 15], svr_fit_rows=50_000, ann_cv_rows=100_000)
+              outlier_db=[8, 15], svr_fit_rows=50_000, ann_cv_rows=100_000,
+              n_jobs=-1)                   # cores for CV folds, RF, chunked SVR prediction and the LM sweeps (-1 = all)
 PARAMS = AdrParameters(min_sf=CONFIG["sf_min"], max_sf=CONFIG["sf_max"],
                        min_tp=CONFIG["min_tp_dbm"], max_tp=CONFIG["max_tp_dbm"])
 LMS = tuple(np.round(np.arange(0, 15.001, CONFIG["lm_step_db"]), 2))
@@ -137,7 +139,11 @@ def cpls(tr, te):
         cv_idx = sub if sub is not None else np.arange(len(Xtr))
         cvs = -cross_val_score(mk() if name != "RF" else make_rf(**spec.RF_BEST, n_jobs=1),
                                Xtr[cv_idx], ytr[cv_idx], scoring="neg_root_mean_squared_error", cv=cv, n_jobs=-1)
-        p_te = np.asarray(est.predict(Xte), float)
+        if name == "SVR":        # libsvm predicts single-threaded: chunk the test set across cores (identical result)
+            p_te = np.concatenate(Parallel(n_jobs=CONFIG["n_jobs"])(delayed(est.predict)(c) for c in np.array_split(Xte, 4 * (os.cpu_count() or 1))))
+        else:
+            p_te = np.asarray(est.predict(Xte), float)
+        p_te = np.asarray(p_te, float)
         preds[name] = p_te
         s_te = score(yte, p_te)
         pp = spec.TABLE_IV[name]
@@ -232,8 +238,9 @@ def adr_and_energy(tr, te, preds, sp, spt, psi=None):
                         adr_window_order=CONFIG["adr_window_order"], adr_window=CONFIG["adr_window"],
                         adr_sf_mode=CONFIG["adr_sf_mode"], adr_tp_step=CONFIG["adr_tp_step"],
                         adr_window_excl_current=CONFIG["adr_window_excl_current"], params=PARAMS_ADR)
-    cur = {k: simulate_enhanced(te, p, cfg) for k, p in allp.items()}
-    cur["ADR"] = simulate_conventional(te, cfg_adr)
+    keys = list(allp)          # the eight LM sweeps are independent: one process each
+    res = Parallel(n_jobs=CONFIG["n_jobs"])([delayed(simulate_enhanced)(te, allp[k], cfg) for k in keys] + [delayed(simulate_conventional)(te, cfg_adr)])
+    cur = dict(zip(keys, res[:-1])); cur["ADR"] = res[-1]
     order = ["ADR", "Friis", "SPLMSF", "SPLMSFT", "MLR", "ANN", "SVR", "RF"]
     cur = {k: cur[k] for k in order}
     pd.concat([v.assign(scheme=k) for k, v in cur.items()], ignore_index=True).to_csv(FINAL / "fig11_curves.csv", index=False)
@@ -342,7 +349,7 @@ def claims():
 def main():
     for d in (FINAL, FIGS, MODELS): d.mkdir(parents=True, exist_ok=True)
     json.dump(CONFIG, open(FINAL / "config.json", "w"), indent=2)
-    log("1/6 data"); df, tr, te = prepare_data()
+    log(f"1/6 data   ({os.cpu_count()} cores; n_jobs = {CONFIG['n_jobs']})"); df, tr, te = prepare_data()
     pm = PowerModel()
     pd.DataFrame([pm.params() | dict(paper_r2=0.95)]).to_csv(FINAL / "table_vii_power_model.csv", index=False)
     pd.DataFrame([verify_against_csv(df)]).to_csv(FINAL / "toa_formula_check.csv", index=False)
