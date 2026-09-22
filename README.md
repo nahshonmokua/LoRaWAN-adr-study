@@ -6,17 +6,21 @@ Enhancement" — DOI 10.1109/JIOT.2023.3239827 — from the released `LoRaWAN_Pa
 
 ## Run
 
-Open **`reproduce.ipynb`** and *Run All*: the pipeline (~10 min), the tests, then every table and figure.
-The same from a terminal:
+Environment: **`ml001`** (`~/envs/ml001`, kernel "Python (ml001)") — Python 3.12.3; numpy 1.26.4, pandas 2.2.2,
+scipy 1.13.1, scikit-learn 1.4.2, statsmodels 0.14.5, matplotlib 3.8.4, joblib 1.5.2.
+
+Open **`reproduce.ipynb`** with the `ml001` kernel and *Run All*: the pipeline (~5 min on 32 cores), the tests,
+then every table and figure. The same from a terminal:
 
 ```bash
-python3 src/run_final.py                 # ~10 min: data -> conventional models -> CPLS models -> residuals -> ADR/energy
-python3 tests/test_adr_equivalence.py && python3 tests/test_pipeline_behaviour.py
-jupyter nbconvert --to notebook --execute reproduce.ipynb
+source ~/envs/ml001/bin/activate
+python src/run_final.py                  # data -> conventional models -> CPLS models -> residuals -> ADR/energy
+python tests/test_adr_equivalence.py && python tests/test_pipeline_behaviour.py
+jupyter execute reproduce.ipynb          # runs the notebook in place
 ```
 
-Python 3.12; numpy 1.26, pandas 2.2, scipy 1.13, scikit-learn 1.4.2, statsmodels 0.14, matplotlib 3.8.
 Seed 42 everywhere; two clean runs agree to 1e-11. The cache `data/raw.pkl` rebuilds itself when the CSV changes.
+`CONFIG["n_jobs"]` (default -1) sets the cores used by cross-validation, the random forest, the SVR prediction and the LM sweeps.
 
 ## Layout
 
