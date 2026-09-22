@@ -203,7 +203,7 @@ def _adr_from_snrmax(snr_max, sf0, lm, params, sf_mode="both", tp_step=None):
     sf = np.asarray(sf0, float).copy()
     me = snr_max - snr_limit_of(sf) - lm
     if tp_step:
-        # vectorised TTN nStep rule (see adr_closed_loop.run_device)
+        # vectorised TTN nStep rule (integer steps; the final run uses the continuous rule)
         nstep = np.floor(me / tp_step).astype(int)
         tp = np.full(len(sf), 20.0)
         for _ in range(params.max_sf - params.min_sf):

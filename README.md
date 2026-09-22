@@ -1,72 +1,57 @@
-# Reproduction: González-Palacio et al. (2023), IEEE IoT-J 10(12):10725–10739
+# Reproduction of González-Palacio et al. (2023), IEEE IoT-J 10(12)
 
 "Machine-Learning-Based Combined Path Loss and Shadowing Model in LoRaWAN for Energy Efficiency
-Enhancement" — DOI 10.1109/JIOT.2023.3239827. Reproduced from the released
-`LoRaWAN_PathLossMeasurements.csv` (930,753 rows; its data descriptor is Data 8(1):4, 2023,
-DOI 10.3390/data8010004 — US915, SF 7-10 only).
-
-**Read `outputs/REPRODUCTION_REPORT.md`.** Everything else supports it.
+Enhancement" — DOI 10.1109/JIOT.2023.3239827 — from the released `LoRaWAN_PathLossMeasurements.csv`
+(930,753 rows; data descriptor: Data 8(1):4, 2023, DOI 10.3390/data8010004 — US915, SF 7–10).
 
 ## Run
 
 ```bash
-python3 src/run_final.py             # ~10 min: data -> models -> residuals -> ADR sweep -> energy -> outputs/final/
-python3 src/make_final_report.py     # builds outputs/REPRODUCTION_REPORT.md from outputs/final/*.csv
-python3 tests/test_adr_equivalence.py
-python3 outputs/provenance/validity/validity_checks.py   # ~2 min, feeds the report's validity sections
+python3 src/run_final.py                 # ~10 min: data -> conventional models -> CPLS models -> residuals -> ADR/energy -> outputs/final/
+python3 tests/test_adr_equivalence.py && python3 tests/test_pipeline_behaviour.py
+jupyter nbconvert --to notebook --execute notebooks/figures.ipynb     # every figure, from outputs/final/*.csv
 ```
+
+Python 3.12; numpy 1.26, pandas 2.2, scipy 1.13, scikit-learn 1.4.2, statsmodels 0.14, matplotlib 3.8.
+Seed 42 everywhere; two clean runs agree to 1e-11. The CSV cache `outputs/raw.pkl` rebuilds itself when the CSV changes.
 
 ## Layout
 
 ```
 src/
-  run_final.py            the reproduction, end to end, at the determined configuration
-  make_final_report.py    report generator (every number read from outputs/final/)
-  paper_spec.py           every number printed in the paper, transcribed verbatim
-  assumptions.py          every judgment call, with the paper's wording and ours
-  data_loading.py         dtype-pinned load of the CSV, derived columns
-  reconstruction.py       restores the pre-cleaning outlier population (see report, Configuration)
-  splitting.py            the seeded 80/20 split
-  conventional_models.py  Friis, Two-ray, Okumura-Hata, SPLMSF, SPLMSFT
-  cpls_models.py          MLR (eq. 6), ANN, SVR, RF                        [reusable]
-  adr_algorithm.py        Algorithm 1 (as printed / corrected / as the text describes it) + conventional ADR [reusable]
-  simulation.py           LM sweep and the PDR decision rule
-  energy.py               LoRa ToA (verified against the CSV) and the Table VII power model
-  stage11_reconstruct.py  PROVENANCE: how the data step was determined
-  stage14_inverse.py      PROVENANCE: inverse search that fixed the undocumented Algorithm-1 settings
-
-Every non-printed choice in `run_final.CONFIG` is either determined by evidence in outputs/provenance/
-(data reconstruction, Algorithm-1 control flow, delivery rule, continuous ADR, SF ranges, window, integer operating points, Appendix shadowing)
-or listed as an open assumption in src/assumptions.py.
-tests/test_adr_equivalence.py
-notebooks/final_reproduction.ipynb
-outputs/
-  final/                  tables (CSV), figures/, models/, config.json  <- the deliverable
-  provenance/
-    stage11/stage14 CSVs  the data reconstruction and the Algorithm-1 inverse search
-    paper_digitized/      the paper's Figs. 11-13 digitized from the PDF (500 dpi), validated against its text
-    adr_mechanism/        how the delivery rule, the ADR mechanism and the reading of Section IV were determined (incl. rejected variants)
-    released_file_check.py/.csv   the released CSV against its own data descriptor (Data 8(1):4, 2023): rows, Mahalanobis filter, MLR RMSE
-    mlr_feature_ablation.py/.csv  what carries eq. (6)'s gain over the distance law (node offset + SNR; weather 0.03 dB)
-    psi_scale_check.py/.csv       SPLMSFT's PDR advantage over SPLMSF is the scale of the sampled psi, not the t shape
-    validity/             checks prompted by the independent review of 21 Sep 2026: delivery feasibility, released vs
-                          reconstructed data, ADR window order, causal features, node hold-outs (validity_summary.csv)
-  REPRODUCTION_REPORT.md
-  raw.pkl                 cache of the loaded CSV (rebuilt automatically if absent)
+  run_final.py            the pipeline; CONFIG at the top holds every choice the paper leaves open
+  paper_spec.py           every number the paper prints, and its data descriptor's
+  plots.py                every figure, drawn from outputs/final/*.csv (run_final saves them; the notebook shows them)
+  data_loading.py  splitting.py  reconstruction.py  conventional_models.py  cpls_models.py
+  adr_algorithm.py        Algorithm 1 (as printed / corrected / as the text describes it) + conventional ADR   [reusable]
+  simulation.py           LM sweeps for both schemes; residual and receiver-threshold delivery rules
+  energy.py               ToA (matches the CSV's toa column exactly) and the Table VII power model
+tests/                    Algorithm 1 scalar == vectorised; CONFIG forwarding, cache invalidation, delivery-rule dependence
+notebooks/figures.ipynb   Figs. 4, 11, 12, 13, 14-15, plus energy at equal achieved PDR, with the key tables
+data/paper_digitized/     the paper's Figs. 11-13 digitized from the PDF (digitize.py) — the hollow markers in the figures
+outputs/final/            generated, ignored by git: tables (CSV), config.json, models, test predictions, figures/
 ```
 
-## Reuse against other data
+## What `outputs/final/` contains
 
-`cpls_models.py` and `adr_algorithm.py` have no file I/O and take a replaceable `FeatureSpec`:
+`headline_claims.csv` (the paper's six headline numbers, ours, and what each rests on), `table_iii_conventional.csv`,
+`table_iv_cpls.csv`, `table_v_mlr_weights.csv`, `appendix_residual_tests.csv`, `fig11_curves.csv` / `fig11_link_margins.csv`,
+`fig12_13_energy_toa.csv` (at the paper's operating LMs) and `fig12_13_reading_sensitivity.csv` (at equal achieved PDR),
+the SF ≤ 10 companions (`*_sf10.csv`) and the receiver-threshold companions (`*_threshold_sf*.csv`),
+`figs_vs_paper_digitized.csv`, and `figures/`.
 
-```python
-from cpls_models import FeatureSpec, make_X, make_rf, CplsModel
-from adr_algorithm import enhanced_adr, AdrParameters
-spec  = FeatureSpec(distance="range_m", pm25="pm25_ugm3", distance_scale=1e-3)
-model = CplsModel("RF", make_rf().fit(make_X(train, spec), train.pl), spec)
-tp, sf, me, adj = enhanced_adr(d, f, T, RH, BP, PM, SNR, pl_model=model.predict_row,
-                               current_tp=20, current_sf=9, LM=4, noise_power=-100,
-                               params=AdrParameters(), variant="text")
-```
+## Choices the paper leaves open (all in `run_final.CONFIG`)
 
-Python 3.12 · numpy 1.26 · pandas 2.2 · scipy 1.13 · scikit-learn 1.4 · statsmodels 0.14 · matplotlib 3.8. No GPU.
+* **Data.** The released file is smaller than the paper's database and its residuals are near-normal; the paper's
+  MLR RMSE 1.951, ν = 11.43 and ±15 dB tails cannot be obtained from it. `reconstruction.py` perturbs 0.25 % + 0.15 %
+  of rows by ±8–15 dB before the split — both fractions are *calibrated* to those printed values, so agreement on them
+  is calibration, not evidence (`headline_claims.csv` says so per row). Set both fractions to 0 for the unmodified data.
+* **Algorithm 1** is run as Section IV-A describes it (variant `text`): `snr_limit` from the current SF, the two
+  scenarios exclusive, TP from the margin at the SF used, power clamped to 2–20 dBm. As printed it cannot run.
+* **Delivery rule** `PL_true − PL_pred < LM` (ADR: `SNRmax − SNR < LM`) — the paper's wording; blind to the
+  selected SF/TP, which is why the receiver-threshold companions exist.
+* **Conventional ADR**: SF 7–12, `TP = 20 − Me`, SNRmax over the 20 samples before the packet, taken over the test
+  set in shuffled order (the only reading that reproduces Fig. 11's ADR curve; chronological history gives ~4.4 dB, not 11).
+* **Operating points** of Figs. 12/13: the paper's integer LMs. **Shadowing** for SPLMSFT and MLR: the Appendix's
+  Student-t ψ. **Noise floor**: `rssi − snr`. **SF 11/12** appear only through escalation of EN3 — the campaign
+  never used them; the SF ≤ 10 companions show what remains without them.

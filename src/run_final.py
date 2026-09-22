@@ -22,7 +22,6 @@ from pathlib import Path
 import joblib
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -51,11 +50,6 @@ CONFIG = dict(seed=SEED, train_fraction=0.8, sf_min=7, sf_max=12, min_tp_dbm=2.0
               line28="clamped", adr_window=20,
               adr_window_order="test_order",
               adr_window_excl_current=True,  # "collects 20 SNR samples and obtains the maximum": the packet judged is not among them (PDR 1/21 at LM = 0)
-              # conventional-ADR mechanism (see adr_closed_loop.py):
-              #   "open"   - stateless: rolling max of the logged SNRs (all at 20 dBm)
-              #   "closed" - stateful NS/device loop: TP cuts feed back into later SNRs, drops are
-              #              unobserved by the NS, device backoff recovers after `adr_backoff` drops
-              adr_mechanism="open", adr_update_every=1, adr_backoff=None,
               adr_tp_step=None,            # "decreases PT as needed to get Me = 0": continuous.  3.0 = TTN nStep = floor(Me/3)
               adr_sf_mode="both",
               sf_max_adr=12,               # SF range available to the conventional ADR (Section IV: 7-12)
@@ -74,10 +68,8 @@ PARAMS = AdrParameters(min_sf=CONFIG["sf_min"], max_sf=CONFIG["sf_max"],
 LMS = tuple(np.round(np.arange(0, 15.001, CONFIG["lm_step_db"]), 2))
 PARAMS_ADR = AdrParameters(min_sf=CONFIG["sf_min"], max_sf=CONFIG["sf_max_adr"],
                            min_tp=CONFIG["min_tp_dbm"], max_tp=CONFIG["max_tp_dbm"])
-PAPER_DIG = OUTPUTS / "provenance" / "paper_digitized"
-DIG = {"ANN": "ANN", "SVR": "SVR", "RF": "RF", "MLR": "MLR", "FRIIS": "Friis", "SPLMSF": "SPLMSF", "SPLMSFT": "SPLMSFT", "ADR": "ADR"}
-STYLE = {"ADR": ("0.45", "s"), "ANN": ("#E8A33D", "o"), "Friis": ("#5BC0EB", "^"), "MLR": ("#2E9E5B", "o"),
-         "RF": ("#E03C31", "x"), "SVR": ("#D6409F", "*"), "SPLMSF": ("#2B6CB0", "D"), "SPLMSFT": ("#D2601A", "v")}
+PAPER_DIG = OUTPUTS.parent / "data" / "paper_digitized"     # the paper's Figs. 11-13, digitized (see data/paper_digitized/README.md)
+from plots import DIG  # noqa: E402
 
 
 def log(msg):
@@ -123,15 +115,11 @@ def conventional(df, tr, te):
 
     rep = df.groupby("distance", observed=True).agg(pl=("experimental_pl", "mean"), f=("frequency", "mean"),
                                                     ht=("ht", "first"), hr=("hr", "first")).reset_index()
-    fig, ax = plt.subplots(figsize=(7.2, 5))
-    for d in rep.distance:
-        o = df.loc[df.distance == d, "experimental_pl"]; ax.vlines(d / 1e3, o.min(), o.max(), color="0.75", lw=6)
-    ax.scatter(rep.distance / 1e3, rep.pl, s=90, c="#F8766D", zorder=5, label="Av. PL (measured)")
-    ax.scatter(rep.distance / 1e3, friis_pl(rep.distance, rep.f), s=90, c="#7CAE00", zorder=5, label="Friis")
-    ax.scatter(rep.distance / 1e3, sp.predict(rep.distance), s=90, c="#00BFC4", zorder=5, label="SPLMSF")
-    ax.scatter(rep.distance / 1e3, two_ray_pl(rep.distance, rep.ht, rep.hr), s=90, c="#C77CFF", zorder=5, label="Two-ray")
-    ax.set_xlabel("Distance (km)"); ax.set_ylabel("Path Loss (dB)"); ax.set_title("Fig. 4 - conventional models")
-    ax.legend(fontsize=9); ax.grid(alpha=.3); fig.tight_layout(); fig.savefig(FIGS / "fig04.png", dpi=160); plt.close(fig)
+    pd.DataFrame(dict(distance_km=rep.distance / 1e3, pl_mean=rep.pl,
+                      pl_min=[df.loc[df.distance == d, "experimental_pl"].min() for d in rep.distance],
+                      pl_max=[df.loc[df.distance == d, "experimental_pl"].max() for d in rep.distance],
+                      friis=friis_pl(rep.distance, rep.f), splmsf=sp.predict(rep.distance),
+                      two_ray=two_ray_pl(rep.distance, rep.ht, rep.hr))).to_csv(FINAL / "fig04_data.csv", index=False)
     return sp, spt
 
 
@@ -214,13 +202,8 @@ def residuals(tr, te, mlr):
         dict(test="residual range dB", statistic=f"{r.min():.2f}..{r.max():.2f}", pvalue=np.nan, paper="~ -13..+10 (Fig.14)"),
     ]).to_csv(FINAL / "appendix_residual_tests.csv", index=False)
     step = max(1, len(emn) // 4000)
-    fig, ax = plt.subplots(1, 2, figsize=(11, 4.6))
-    for a, (th, em, r2, ttl) in zip(ax, [(thn, emn, r2n, "Fig. 14 - QQ vs Normal"),
-                                         (tht, emt, r2t, f"Fig. 15 - QQ vs Student-t, $\\nu$={nu:.2f}")]):
-        a.plot(th[::step], em[::step], ".", ms=3); lim = [th[::step].min(), th[::step].max()]
-        a.plot(lim, lim, "r-", lw=1); a.set_title(f"{ttl}  (R$^2$={r2:.4f})"); a.grid(alpha=.3)
-        a.set_xlabel("theoretical quantiles (dB)")
-    ax[0].set_ylabel("residual quantiles (dB)"); fig.tight_layout(); fig.savefig(FIGS / "fig14_15.png", dpi=160); plt.close(fig)
+    ok_ = np.isfinite(tht[::step]) & np.isfinite(thn[::step])
+    pd.DataFrame(dict(theoretical_normal=thn[::step][ok_], theoretical_t=tht[::step][ok_], empirical=emn[::step][ok_])).to_csv(FINAL / "fig14_15_qq.csv", index=False)
     log(f"  residuals: nu {nu:.2f} (paper 11.43), kurt {stats.kurtosis(r):+.2f}, range {r.min():.1f}..{r.max():.1f}; Appendix psi scale {sc_a:.3f} dB")
     return dict(nu=float(nu_a), loc=float(loc_a), scale=float(sc_a))
 
@@ -246,14 +229,7 @@ def adr_and_energy(tr, te, preds, sp, spt, psi=None):
                         adr_sf_mode=CONFIG["adr_sf_mode"], adr_tp_step=CONFIG["adr_tp_step"],
                         adr_window_excl_current=CONFIG["adr_window_excl_current"], params=PARAMS_ADR)
     cur = {k: simulate_enhanced(te, p, cfg) for k, p in allp.items()}
-    if CONFIG["adr_mechanism"] == "closed":
-        import adr_closed_loop                     # provenance module; not used by the final configuration
-        cur["ADR"] = adr_closed_loop.simulate(
-            te, LMS, sf_init="logged", window=CONFIG["adr_window"], update_every=CONFIG["adr_update_every"],
-            backoff=CONFIG["adr_backoff"], tp_step=CONFIG["adr_tp_step"], min_tp=PARAMS_ADR.min_tp,
-            max_tp=PARAMS_ADR.max_tp, min_sf=PARAMS_ADR.min_sf, max_sf=PARAMS_ADR.max_sf)
-    else:
-        cur["ADR"] = simulate_conventional(te, cfg_adr)
+    cur["ADR"] = simulate_conventional(te, cfg_adr)
     order = ["ADR", "Friis", "SPLMSF", "SPLMSFT", "MLR", "ANN", "SVR", "RF"]
     cur = {k: cur[k] for k in order}
     pd.concat([v.assign(scheme=k) for k, v in cur.items()], ignore_index=True).to_csv(FINAL / "fig11_curves.csv", index=False)
@@ -334,34 +310,15 @@ def adr_and_energy(tr, te, preds, sp, spt, psi=None):
         log("  threshold rule, SF<=%d: max reachable PDR %s" % (cap, {k: round(v, 2) for k, v in ceil.items() if k in ("ADR", "ANN", "SVR", "RF")}))
 
     d11 = pd.read_csv(PAPER_DIG / "paper_fig11_digitized.csv", index_col=0).clip(upper=100) if (PAPER_DIG / "paper_fig11_digitized.csv").exists() else None
-    fig, ax = plt.subplots(figsize=(7.6, 5.2))
-    for k, c in cur.items():
-        col, m = STYLE[k]; ax.plot(c.LM, c.pdr, color=col, lw=1.6, label=k)
-    if d11 is not None:
-        for pk, ok in DIG.items():
-            col, m = STYLE[ok]; v = d11[pk]
-            ax.scatter(v.index, v.values, marker=m, s=34, facecolor="none" if m not in ("x", "*") else col, edgecolor=col, lw=1.2, zorder=6)
-    ax.set_xlabel("LM (dB)"); ax.set_ylabel("PDR (%)"); ax.set_ylim(0, 103); ax.grid(alpha=.3)
-    ax.set_title("Fig. 11 - PDR vs link margin   (lines: reproduced, hollow markers: paper, digitized)")
-    ax.legend(fontsize=8, loc="lower right"); fig.tight_layout(); fig.savefig(FIGS / "fig11.png", dpi=160); plt.close(fig)
     cmp_rows = []
-    for col_, fname, ylab, digf in (("toa_improvement_pct", "fig12", "ToA improvement vs ADR (%)", "paper_fig12_digitized.csv"),
-                                    ("energy_improvement_pct", "fig13", "Energy improvement vs ADR (%)", "paper_fig13_digitized.csv")):
+    for col_, fname, digf in (("toa_improvement_pct", "fig12", "paper_fig12_digitized.csv"), ("energy_improvement_pct", "fig13", "paper_fig13_digitized.csv")):
         dg = pd.read_csv(PAPER_DIG / digf, index_col=0) if (PAPER_DIG / digf).exists() else None
-        fig, ax = plt.subplots(figsize=(7.4, 5))
-        for k, g in E[E.scheme != "ADR"].groupby("scheme"):
-            col, m = STYLE[k]; ax.plot(g.pdr, g[col_], marker=m, color=col, lw=1.6, label=k)
-        if dg is not None:
-            for pk, ok in DIG.items():
-                if ok == "ADR": continue
-                col, m = STYLE[ok]
-                ax.scatter(dg.index, dg[pk].values, marker=m, s=60, facecolor="none" if m not in ("x", "*") else col, edgecolor=col, lw=1.4, zorder=6)
-                for p in dg.index:
-                    r = E[(E.scheme == ok) & (E.pdr == p)]
-                    if len(r): cmp_rows.append(dict(figure=fname, scheme=ok, pdr=p, ours=float(r[col_].iloc[0]), paper=float(dg.loc[p, pk])))
-        ax.axhline(0, color="0.45", ls="--"); ax.set_xlabel("PDR (%)"); ax.set_ylabel(ylab); ax.grid(alpha=.3)
-        ax.set_title(f"{fname[:3].capitalize()}. {fname[3:]} - lines: reproduced, hollow markers: paper (digitized)"); ax.legend(fontsize=8)
-        fig.tight_layout(); fig.savefig(FIGS / f"{fname}.png", dpi=160); plt.close(fig)
+        if dg is None: continue
+        for pk, ok in DIG.items():
+            if ok == "ADR": continue
+            for p in dg.index:
+                r = E[(E.scheme == ok) & (E.pdr == p)]
+                if len(r): cmp_rows.append(dict(figure=fname, scheme=ok, pdr=p, ours=float(r[col_].iloc[0]), paper=float(dg.loc[p, pk])))
     if d11 is not None:
         for pk, ok in DIG.items():
             c = cur[ok]
@@ -405,9 +362,9 @@ def claims():
     # what each verdict rests on: the data step (D1) is calibrated to the paper's MLR RMSE, nu and ADR margin,
     # so agreement on those quantities is not independent evidence
     basis = {"RMSE up to 1.566 dB, R2 up to 0.94": "reconstructed data (calibrated to the paper's MLR RMSE)",
-             "Model ranking by test RMSE": "independent", "Best ML model: PDR > 99 % at LM = 4 dB": "independent (residual rule, oracle SNR)",
+             "Model ranking by test RMSE": "not a calibration target", "Best ML model: PDR > 99 % at LM = 4 dB": "not a calibration target (residual rule, packet's own SNR; simulator choices selected against the paper's figures)",
              "Conventional ADR needs LM = 11 dB for 99 %": "reconstructed data (the coupled fraction is calibrated to this margin), shuffled window",
-             "Energy saving up to 43 % vs conventional ADR (43.5 % for ANN, its best model)": "independent under the paper's SF 7-12; ordering not reproduced",
+             "Energy saving up to 43 % vs conventional ADR (43.5 % for ANN, its best model)": "not a calibration target; under the paper's SF 7-12, simulator choices selected against its figures; ordering not reproduced",
              "Shadow fading is Student-t, nu = 11.43": "calibration target of D1"}
     for r in rows: r["basis"] = basis[r["claim"]]
     pd.DataFrame(rows).to_csv(FINAL / "headline_claims.csv", index=False)
@@ -425,6 +382,7 @@ def main():
     log("4/6 residuals"); psi = residuals(tr, te, mlr)
     log("5/6 ADR / energy"); adr_and_energy(tr, te, preds, sp, spt, psi)
     log("6/6 claims"); claims()
+    import plots; plots.save_all(FINAL, FIGS)
     log("done -> outputs/final/")
 
 
