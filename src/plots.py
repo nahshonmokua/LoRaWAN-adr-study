@@ -64,7 +64,8 @@ def _improvement(final, table, col, ylab, title, digf=None, levels=(80, 85, 90, 
     if dg is not None:
         for pk, ok in DIG.items():
             if ok != "ADR": _hollow(ax, dg.index, dg[pk].values, ok, 60)
-    ax.axhline(0, color="0.45", ls="--"); ax.set_xlabel("PDR (%)"); ax.set_ylabel(ylab); ax.grid(alpha=.3); ax.set_title(title); ax.legend(fontsize=8)
+    ax.plot(list(levels), [0] * len(levels), color="0.45", ls="--", marker="s", ms=5, lw=1.2, label="ADR (reference)")
+    ax.set_xlabel("PDR (%)"); ax.set_ylabel(ylab); ax.grid(alpha=.3); ax.set_title(title); ax.legend(fontsize=8)
     fig.tight_layout(); return fig
 
 
