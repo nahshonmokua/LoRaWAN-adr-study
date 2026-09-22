@@ -125,7 +125,7 @@ PDR_TARGETS = {
 # Integer operating points of Figs. 12/13.  The paper simulates LM = 0..15 dB in 1 dB steps and
 # reads each PDR level as "PDR of X % is achieved with LM = n dB"; Figs. 12/13 can only have been
 # computed at those integer LMs.  Text values as above; the rest are the first integer LM at which
-# the digitized Fig. 11 curve (data/paper_digitized/) reaches the level.  Friis at
+# the digitized Fig. 11 curve (paper_digitized/) reaches the level.  Friis at
 # LM >= 3 is hidden under other curves in the figure, so its text values are used throughout.
 PDR_TARGETS_INTEGER = {
     "ADR":     {80: 6, 85: 7, 90: 8, 95: 9, 99: 11},

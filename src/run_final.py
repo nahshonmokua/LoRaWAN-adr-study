@@ -10,7 +10,7 @@ Configuration (every non-printed choice, and how it was fixed):
   conventional  TTN rule, rolling max of 20 SNR samples per device over the test subset
   ToA / energy  LoRa ToA (1-byte payload, BW 125 kHz, CR 4/5, CRC, explicit header);
                 E = P_consumed(TP) x ToA with P_consumed the Table VII linear fit
-Everything is written to outputs/final/.
+Tables go to tables/, figures to figures/, fitted models to models/ (see data_loading for the layout).
 """
 from __future__ import annotations
 
@@ -20,8 +20,6 @@ import time
 from pathlib import Path
 
 import joblib
-import matplotlib
-matplotlib.use("Agg")
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -35,15 +33,14 @@ from adr_algorithm import AdrParameters                                         
 from conventional_models import (SPLMSF, SPLMSFT, friis_pl, okumura_hata_pl,       # noqa: E402
                                  score, two_ray_pl)
 from cpls_models import MLRCpls, make_ann, make_rf, make_svr, make_X, make_y      # noqa: E402
-from data_loading import OUTPUTS, load_cached                                     # noqa: E402
+from data_loading import FIGURES, MODELS, PAPER_DIG, TABLES, load_cached                                     # noqa: E402
 from energy import PowerModel, improvement_pct, verify_against_csv   # noqa: E402
 from reconstruction import restore_outliers                                       # noqa: E402
 from simulation import SimConfig, simulate_conventional, simulate_enhanced        # noqa: E402
 from splitting import SEED, split                                                 # noqa: E402
 import paper_spec as spec                                                         # noqa: E402
 
-FINAL = OUTPUTS / "final"
-FIGS, MODELS = FINAL / "figures", FINAL / "models"
+FINAL, FIGS = TABLES, FIGURES
 LEVELS = (80, 85, 90, 95, 99)
 CONFIG = dict(seed=SEED, train_fraction=0.8, sf_min=7, sf_max=12, min_tp_dbm=2.0, max_tp_dbm=20.0,
               algorithm1_variant="text",     # Section IV-A's reading of Algorithm 1: exclusive scenarios, TP from the margin at the SF used ("corrected" = listing-literal)
@@ -53,7 +50,6 @@ CONFIG = dict(seed=SEED, train_fraction=0.8, sf_min=7, sf_max=12, min_tp_dbm=2.0
               adr_tp_step=None,            # "decreases PT as needed to get Me = 0": continuous.  3.0 = TTN nStep = floor(Me/3)
               adr_sf_mode="both",
               sf_max_adr=12,               # SF range available to the conventional ADR (Section IV: 7-12)
-              sf_cap_companion=10,         # the deployment's real uplink range (US915, descriptor 4.4: SF 7-10): companion pass with BOTH schemes capped
               delivery_rule="residual",    # "actual RSSI > predicted RSSI - LM"  <=>  PL_true - PL_pred < LM
               en_tp_quant=None,            # EN transmit-power granularity, dB (US915 TXPower table: 2); None = continuous
               energy_over="all",           # improvement curves over "all" packets or "delivered" only
@@ -68,7 +64,6 @@ PARAMS = AdrParameters(min_sf=CONFIG["sf_min"], max_sf=CONFIG["sf_max"],
 LMS = tuple(np.round(np.arange(0, 15.001, CONFIG["lm_step_db"]), 2))
 PARAMS_ADR = AdrParameters(min_sf=CONFIG["sf_min"], max_sf=CONFIG["sf_max_adr"],
                            min_tp=CONFIG["min_tp_dbm"], max_tp=CONFIG["max_tp_dbm"])
-PAPER_DIG = OUTPUTS.parent / "data" / "paper_digitized"     # the paper's Figs. 11-13, digitized (see data/paper_digitized/README.md)
 from plots import DIG  # noqa: E402
 
 
@@ -273,41 +268,6 @@ def adr_and_energy(tr, te, preds, sp, spt, psi=None):
                                   paper_toa_pct=spec.TOA_IMPROVEMENT_TARGETS.get(k, np.nan) if p == 99 else np.nan))
         return pd.DataFrame(erows)
     E = improvements(cur, CONFIG["operating_lm"]); E.to_csv(FINAL / "fig12_13_energy_toa.csv", index=False)
-    pd.concat([improvements(cur, r).assign(reading=r) for r in ("paper_integer", "ours_integer", "grid")],
-              ignore_index=True).to_csv(FINAL / "fig12_13_reading_sensitivity.csv", index=False)
-
-    # Companion pass with the deployment's actual data-rate range: US915 uplinks stop at SF 10 (descriptor
-    # 4.4; 0 % of logged rows above it), so BOTH schemes are capped there.  Same LMs, same reading (D3).
-    cap = CONFIG.get("sf_cap_companion")
-    if cap:
-        p_cap = AdrParameters(min_sf=CONFIG["sf_min"], max_sf=cap, min_tp=CONFIG["min_tp_dbm"], max_tp=CONFIG["max_tp_dbm"])
-        cfg_c = SimConfig(lm_values=LMS, clamp_tp=(CONFIG["line28"] == "clamped"), variant=CONFIG["algorithm1_variant"],
-                          rule=CONFIG["delivery_rule"], en_tp_quant=CONFIG["en_tp_quant"], params=p_cap)
-        cfg_c_adr = SimConfig(lm_values=LMS, rule=CONFIG["delivery_rule"],
-                              adr_window_order=CONFIG["adr_window_order"], adr_window=CONFIG["adr_window"],
-                              adr_sf_mode=CONFIG["adr_sf_mode"], adr_tp_step=CONFIG["adr_tp_step"],
-                              adr_window_excl_current=CONFIG["adr_window_excl_current"], params=p_cap)
-        cur_c = {k: simulate_enhanced(te, allp[k], cfg_c) for k in order if k != "ADR"}; cur_c["ADR"] = simulate_conventional(te, cfg_c_adr)
-        pd.concat([v.assign(scheme=k) for k, v in cur_c.items()], ignore_index=True).to_csv(FINAL / f"fig11_curves_sf{cap}.csv", index=False)
-        improvements(cur_c, CONFIG["operating_lm"]).to_csv(FINAL / f"fig12_13_energy_toa_sf{cap}.csv", index=False)
-        log("  companion SF<=%d: ANN energy at 80..99 %% = %s" % (cap, np.round(improvements(cur_c, CONFIG["operating_lm"]).query("scheme == 'ANN'").energy_improvement_pct.values).astype(int).tolist()))
-
-    # Delivery-feasibility check (review 2026-09-21, item 1): the residual rule is blind to the selected SF/TP, so
-    # under it a SF cap changes energy but not PDR.  Re-evaluate both schemes with the receiver-threshold rule
-    # (received power at the selected TP vs noise + SNR_limit(selected SF)) and compare at MATCHED achieved PDR
-    # (each scheme at its own first crossing).  Levels a scheme cannot reach are absent from the table.
-    for cap in sorted({CONFIG["sf_max"], CONFIG.get("sf_cap_companion") or CONFIG["sf_max"]}, reverse=True):
-        p_cap = AdrParameters(min_sf=CONFIG["sf_min"], max_sf=cap, min_tp=CONFIG["min_tp_dbm"], max_tp=CONFIG["max_tp_dbm"])
-        cfg_t = SimConfig(lm_values=LMS, clamp_tp=(CONFIG["line28"] == "clamped"), variant=CONFIG["algorithm1_variant"],
-                          rule="threshold", en_tp_quant=CONFIG["en_tp_quant"], params=p_cap)
-        cfg_t_adr = SimConfig(lm_values=LMS, rule="threshold", adr_window_order=CONFIG["adr_window_order"], adr_window=CONFIG["adr_window"],
-                              adr_sf_mode=CONFIG["adr_sf_mode"], adr_tp_step=CONFIG["adr_tp_step"],
-                              adr_window_excl_current=CONFIG["adr_window_excl_current"], params=p_cap)
-        cur_t = {k: simulate_enhanced(te, allp[k], cfg_t) for k in order if k != "ADR"}; cur_t["ADR"] = simulate_conventional(te, cfg_t_adr)
-        pd.concat([v.assign(scheme=k) for k, v in cur_t.items()], ignore_index=True).to_csv(FINAL / f"fig11_curves_threshold_sf{cap}.csv", index=False)
-        improvements(cur_t, "grid").to_csv(FINAL / f"fig12_13_energy_toa_threshold_sf{cap}.csv", index=False)
-        ceil = {k: float(v.pdr.max()) for k, v in cur_t.items()}
-        log("  threshold rule, SF<=%d: max reachable PDR %s" % (cap, {k: round(v, 2) for k, v in ceil.items() if k in ("ADR", "ANN", "SVR", "RF")}))
 
     d11 = pd.read_csv(PAPER_DIG / "paper_fig11_digitized.csv", index_col=0).clip(upper=100) if (PAPER_DIG / "paper_fig11_digitized.csv").exists() else None
     cmp_rows = []
@@ -383,7 +343,7 @@ def main():
     log("5/6 ADR / energy"); adr_and_energy(tr, te, preds, sp, spt, psi)
     log("6/6 claims"); claims()
     import plots; plots.save_all(FINAL, FIGS)
-    log("done -> outputs/final/")
+    log("done -> tables/, figures/, models/")
 
 
 if __name__ == "__main__":

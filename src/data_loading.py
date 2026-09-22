@@ -11,8 +11,13 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CSV_PATH = PROJECT_ROOT / "LoRaWAN_PathLossMeasurements.csv"
-OUTPUTS = PROJECT_ROOT / "outputs"
+# ---- project layout (every path in the pipeline comes from here)
+DATA = PROJECT_ROOT / "data"                      # the released CSV, the paper's PDF, the CSV cache
+TABLES = PROJECT_ROOT / "tables"                  # every table the pipeline produces (+ config.json, test predictions)
+FIGURES = PROJECT_ROOT / "figures"                # the paper's figures, reproduced
+MODELS = PROJECT_ROOT / "models"                  # fitted CPLS models
+PAPER_DIG = PROJECT_ROOT / "paper_digitized"      # the paper's Figs. 11-13, digitized
+CSV_PATH = DATA / "LoRaWAN_PathLossMeasurements.csv"
 
 # Columns of the released CSV, with the unit we determined in Stage 1.
 COLUMN_UNITS = {
@@ -112,7 +117,7 @@ def profile(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-CACHE = OUTPUTS / "raw.pkl"
+CACHE = DATA / "raw.pkl"
 
 
 def _cache_key() -> str:
@@ -125,7 +130,7 @@ def _cache_key() -> str:
 
 
 def load_cached(rebuild: bool = False) -> pd.DataFrame:
-    """Load the CSV once, then reuse a pickle cache in outputs/ - only while the CSV and this
+    """Load the CSV once, then reuse a pickle cache in data/ - only while the CSV and this
     module are unchanged (the key is stored next to the pickle)."""
     key_file = CACHE.with_suffix(".key")
     if not CSV_PATH.exists():
