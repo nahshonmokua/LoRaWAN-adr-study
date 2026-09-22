@@ -113,8 +113,8 @@ def conventional(df, tr, te):
     rep = df.groupby("distance", observed=True).agg(pl=("experimental_pl", "mean"), f=("frequency", "mean"),
                                                     ht=("ht", "first"), hr=("hr", "first")).reset_index()
     pd.DataFrame(dict(distance_km=rep.distance / 1e3, pl_mean=rep.pl,
-                      pl_min=[df.loc[df.distance == d, "experimental_pl"].min() for d in rep.distance],
-                      pl_max=[df.loc[df.distance == d, "experimental_pl"].max() for d in rep.distance],
+                      pl_p005=[df.loc[df.distance == d, "experimental_pl"].quantile(0.005) for d in rep.distance],
+                      pl_p995=[df.loc[df.distance == d, "experimental_pl"].quantile(0.995) for d in rep.distance],
                       friis=friis_pl(rep.distance, rep.f), splmsf=sp.predict(rep.distance),
                       two_ray=two_ray_pl(rep.distance, rep.ht, rep.hr))).to_csv(FINAL / "fig04_data.csv", index=False)
     return sp, spt

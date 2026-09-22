@@ -31,10 +31,11 @@ def _hollow(ax, x, y, key, s):
 
 
 def fig04(final: Path = FINAL):
-    """Fig. 4 - conventional models against the measured path loss, per distance."""
+    """Fig. 4 - conventional models against the measured path loss, per distance (the paper draws the observed
+    spread as circles; here it is the 0.5-99.5 % range, so the few perturbed rows do not set the bar)."""
     d = pd.read_csv(final / "fig04_data.csv")
     fig, ax = plt.subplots(figsize=(7.2, 5))
-    for r in d.itertuples(): ax.vlines(r.distance_km, r.pl_min, r.pl_max, color="0.75", lw=6)
+    for r in d.itertuples(): ax.vlines(r.distance_km, r.pl_p005, r.pl_p995, color="0.75", lw=6, label="measured PL, 0.5-99.5 % range" if r.Index == 0 else None)
     for col, lab, c in (("pl_mean", "Av. PL (measured)", "#F8766D"), ("friis", "Friis", "#7CAE00"), ("splmsf", "SPLMSF", "#00BFC4"), ("two_ray", "Two-ray", "#C77CFF")):
         ax.scatter(d.distance_km, d[col], s=90, c=c, zorder=5, label=lab)
     ax.set_xlabel("Distance (km)"); ax.set_ylabel("Path Loss (dB)"); ax.set_title("Fig. 4 - conventional models")

@@ -10,5 +10,7 @@ at every query x.
 Validation against numbers printed in the text: ADR 83.1/88.8/94.5/97.3/99.0 % at LM 6/7/8/9/11
 (paper: >=80/85/90/95/99 at those LMs); ANN ToA 32.7 % (text 32.7), energy 43.3 % (text 43.5);
 SVR 30.2/41.2 (29.9/40.6); RF 27.6/38.6 (27.5/38.7). Read-out precision about +-2 points.
-Known bad cells: Fig. 11 FRIIS at LM 3-8 (marker overlapped by other series); Fig. 13 ADR at
-PDR 90 (annotation arrow); values slightly above 100 are marker-height noise.
+Known bad cells: Fig. 11 FRIIS at LM 3-8 (marker overlapped by SPLMSF/SPLMSFT; the read-out duplicated
+their values) - stored as NaN, so they are neither drawn nor scored; the text gives Friis 95 % at LM 3 and
+99 % at LM 5 (paper_spec.PDR_TARGETS). Fig. 13 ADR at PDR 90 (annotation arrow) is unused. Values slightly
+above 100 are marker-height noise and are clipped to 100 when read.
