@@ -46,12 +46,14 @@ def fig11(final: Path = FINAL):
     """Fig. 11 - PDR vs LM for every scheme; hollow markers are the paper's curve, digitized."""
     c = pd.read_csv(final / "fig11_curves.csv"); d11 = _dig("paper_fig11_digitized.csv")
     fig, ax = plt.subplots(figsize=(7.6, 5.2))
+    c = c[np.isclose(c.LM % 1, 0)]                      # the paper evaluates LM = 0, 1, ..., 15 dB and joins the points
     for k in ("ADR", "Friis", "SPLMSF", "SPLMSFT", "MLR", "ANN", "SVR", "RF"):
-        g = c[c.scheme == k]; ax.plot(g.LM, g.pdr, color=STYLE[k][0], lw=1.6, label=k)
+        g = c[c.scheme == k]; col, m = STYLE[k]
+        ax.plot(g.LM, g.pdr, color=col, lw=1.4, marker=m, ms=5 if m != "*" else 7, label=k)
     if d11 is not None:
-        for pk, ok in DIG.items(): _hollow(ax, d11.index, d11[pk].clip(upper=100).values, ok, 34)
-    ax.set_xlabel("LM (dB)"); ax.set_ylabel("PDR (%)"); ax.set_ylim(0, 103); ax.grid(alpha=.3)
-    ax.set_title("Fig. 11 - PDR vs link margin   (lines: reproduced, hollow markers: paper, digitized)")
+        for pk, ok in DIG.items(): _hollow(ax, d11.index, d11[pk].clip(upper=100).values, ok, 60)
+    ax.set_xlabel("LM (dB)"); ax.set_ylabel("PDR (%)"); ax.set_ylim(0, 103); ax.set_xticks(range(0, 16, 5)); ax.grid(alpha=.3)
+    ax.set_title("Fig. 11 - PDR vs link margin   (filled: reproduced, hollow: paper, digitized)")
     ax.legend(fontsize=8, loc="lower right"); fig.tight_layout(); return fig
 
 
